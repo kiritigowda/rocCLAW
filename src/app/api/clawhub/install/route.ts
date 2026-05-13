@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Missing slug" }, { status: 400 });
     }
 
-    const response = await executeRuntimeGatewayRead("skills.install", { slug });
+    const response = await executeRuntimeGatewayRead("skills.install", { source: "clawhub", slug });
     const data = await response.json();
 
     if (!data.ok) {
