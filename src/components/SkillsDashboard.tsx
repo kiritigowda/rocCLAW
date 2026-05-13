@@ -77,7 +77,7 @@ const FEATURED_SKILLS: {
     category: "Agent Behavior",
   },
   {
-    slug: "Self-Improving + Proactive Agent",
+    slug: "self-improving-agent",
     name: "Self-Improving Agent",
     emoji: "🔄",
     description:
@@ -619,6 +619,7 @@ export function SkillsDashboard() {
   const [searchResults, setSearchResults] = useState<ClawHubSearchResult[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [installError, setInstallError] = useState<string | null>(null);
   const [installingSlugs, setInstallingSlugs] = useState<Set<string>>(new Set());
   const [compactView, setCompactView] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -780,6 +781,7 @@ export function SkillsDashboard() {
   // ── Install skill ────────────────────────────────────────────────────
   const handleInstall = useCallback(
     async (slug: string) => {
+      setInstallError(null);
       setInstallingSlugs((prev) => new Set(prev).add(slug));
       try {
         const res = await fetch("/api/clawhub/install", {
@@ -799,6 +801,7 @@ export function SkillsDashboard() {
         await fetchSkills();
       } catch (err) {
         console.error("Install failed:", err);
+        setInstallError(`Failed to install "${slug}": ${err instanceof Error ? err.message : "Unknown error"}`);
       } finally {
         setInstallingSlugs((prev) => {
           const next = new Set(prev);
@@ -1131,6 +1134,20 @@ export function SkillsDashboard() {
                     />
                   ))}
                 </div>
+              </div>
+            )}
+
+            {/* Install error */}
+            {installError && (
+              <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400 flex items-center justify-between">
+                <span>{installError}</span>
+                <button
+                  onClick={() => setInstallError(null)}
+                  className="ml-2 text-red-400 hover:text-red-300"
+                  aria-label="Dismiss"
+                >
+                  ✕
+                </button>
               </div>
             )}
 
