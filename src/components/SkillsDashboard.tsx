@@ -945,7 +945,14 @@ export function SkillsDashboard() {
       const slugStem = slugLc.replace(/-v?[\d.]+$/, "");
       if (installedNames.has(slugStem)) return true;
 
-      // 3. DisplayName contains installed name in parentheses or brackets
+      // 3. Installed name is a suffix of the slug (separated by "-")
+      //    e.g. slug "amitpnyc-self-improving-agent" → installed "self-improving-agent"
+      //    or slug "anti-hallucination-skill" → installed "anti-hallucination"
+      for (const installedName of installedNames) {
+        if (slugLc.endsWith(`-${installedName}`) || slugLc.startsWith(`${installedName}-`)) return true;
+      }
+
+      // 4. DisplayName contains installed name in parentheses or brackets
       //    e.g. "Google Workspace CLI (gog)" → "gog" is in parens
       for (const installedName of installedNames) {
         const inParens = new RegExp(`[(\\[]${installedName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[)\\]]`, "i");
