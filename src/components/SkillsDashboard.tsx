@@ -688,6 +688,7 @@ export function SkillsDashboard() {
   const [searchError, setSearchError] = useState<string | null>(null);
   const [installError, setInstallError] = useState<string | null>(null);
   const [installingSlugs, setInstallingSlugs] = useState<Set<string>>(new Set());
+  const [installedSlugs, setInstalledSlugs] = useState<Set<string>>(new Set());
   const [compactView, setCompactView] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<"all" | "ready" | "needs-setup">("all");
@@ -861,10 +862,8 @@ export function SkillsDashboard() {
           throw new Error(err.error ?? `HTTP ${res.status}`);
         }
         const result = await res.json().catch(() => ({ success: false }));
-        // "Already installed" is fine — refresh skills to reflect current state
-        if (result.alreadyInstalled) {
-          // Skill is already there, just refresh the list
-        }
+        // Track this slug as successfully installed
+        setInstalledSlugs((prev) => new Set(prev).add(slug));
         await fetchSkills();
       } catch (err) {
         console.error("Install failed:", err);
@@ -945,6 +944,9 @@ export function SkillsDashboard() {
    */
   const isSkillInstalledFromClawhub = useCallback(
     (slug: string, displayName: string): boolean => {
+      // 0. Check if this slug was successfully installed in this session
+      if (installedSlugs.has(slug)) return true;
+
       const slugLc = slug.toLowerCase();
       const nameLc = displayName.toLowerCase();
 
@@ -978,7 +980,7 @@ export function SkillsDashboard() {
 
       return false;
     },
-    [installedNames, installedNamesNormalized]
+    [installedSlugs, installedNames, installedNamesNormalized]
   );
 
   const filteredInstalled = useMemo(() => {
