@@ -921,16 +921,27 @@ export function SkillsDashboard() {
   }, [fetchSkills]);
 
   // ── Computed filtered lists ──────────────────────────────────────────
+  // Normalize a name by lowercasing and replacing hyphens/underscores with spaces
+  // so "anti-hallucination-skill" and "Anti Hallucination Skill" both become
+  // "anti hallucination skill"
+  const normalize = (s: string) => s.toLowerCase().replace(/[-_]+/g, " ").trim();
+
   const installedNames = useMemo(
     () => new Set(installedSkills.map((s) => s.name.toLowerCase())),
+    [installedSkills]
+  );
+
+  const installedNamesNormalized = useMemo(
+    () => new Set(installedSkills.map((s) => normalize(s.name))),
     [installedSkills]
   );
 
   /**
    * Check if a skill from ClawHub (slug or displayName) matches
    * an installed skill. Handles name mismatches like:
+   *   ClawHub slug "anti-hallucination-skill" → installed name "Anti Hallucination Skill"
    *   ClawHub slug "gog-v2" → installed name "gog"
-   *   ClawHub displayName "Google Workspace CLI (gog)" → installed name "gog"
+   *   ClawHub slug "amitpnyc-self-improving-agent" → installed name "self-improving-agent"
    */
   const isSkillInstalledFromClawhub = useCallback(
     (slug: string, displayName: string): boolean => {
@@ -940,20 +951,26 @@ export function SkillsDashboard() {
       // 1. Exact match on slug or displayName
       if (installedNames.has(slugLc) || installedNames.has(nameLc)) return true;
 
-      // 2. Slug stem match: "gog-v2" → stem "gog" matches installed "gog"
-      //    Only strip version-like suffixes (e.g. -v2, -2, -v1.0)
+      // 2. Normalized match: compare with hyphens/spaces normalized
+      //    e.g. slug "anti-hallucination-skill" matches installed "Anti Hallucination Skill"
+      const slugNorm = normalize(slug);
+      const nameNorm = normalize(displayName);
+      if (installedNamesNormalized.has(slugNorm) || installedNamesNormalized.has(nameNorm)) return true;
+
+      // 3. Slug stem match: "gog-v2" → stem "gog" matches installed "gog"
       const slugStem = slugLc.replace(/-v?[\d.]+$/, "");
       if (installedNames.has(slugStem)) return true;
 
-      // 3. Installed name is a suffix of the slug (separated by "-")
+      // 4. Installed name is a suffix/prefix of the slug (separated by "-")
       //    e.g. slug "amitpnyc-self-improving-agent" → installed "self-improving-agent"
-      //    or slug "anti-hallucination-skill" → installed "anti-hallucination"
       for (const installedName of installedNames) {
         if (slugLc.endsWith(`-${installedName}`) || slugLc.startsWith(`${installedName}-`)) return true;
       }
+      for (const installedName of installedNamesNormalized) {
+        if (slugNorm.endsWith(` ${installedName}`) || slugNorm.startsWith(`${installedName} `)) return true;
+      }
 
-      // 4. DisplayName contains installed name in parentheses or brackets
-      //    e.g. "Google Workspace CLI (gog)" → "gog" is in parens
+      // 5. DisplayName contains installed name in parentheses or brackets
       for (const installedName of installedNames) {
         const inParens = new RegExp(`[(\\[]${installedName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[)\\]]`, "i");
         if (inParens.test(displayName)) return true;
@@ -961,7 +978,7 @@ export function SkillsDashboard() {
 
       return false;
     },
-    [installedNames]
+    [installedNames, installedNamesNormalized]
   );
 
   const filteredInstalled = useMemo(() => {
