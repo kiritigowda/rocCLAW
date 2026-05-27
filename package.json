@@ -1,6 +1,6 @@
 {
   "name": "@kiritigowda/rocclaw",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Operator dashboard for managing OpenClaw AI agents",
   "main": "server/index.js",
   "bin": {

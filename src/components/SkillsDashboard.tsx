@@ -861,7 +861,7 @@ export function SkillsDashboard() {
           const err = await res.json().catch(() => ({ error: "Install failed" }));
           throw new Error(err.error ?? `HTTP ${res.status}`);
         }
-        const result = await res.json().catch(() => ({ success: false }));
+        await res.json().catch(() => ({ success: false }));
         // Track this slug as successfully installed
         setInstalledSlugs((prev) => new Set(prev).add(slug));
         await fetchSkills();

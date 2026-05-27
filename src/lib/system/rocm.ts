@@ -8,6 +8,8 @@
 
 import { exec } from "child_process";
 import { promisify } from "util";
+import { readFile } from "fs/promises";
+import { join } from "path";
 
 const execAsync = promisify(exec);
 
@@ -44,6 +46,197 @@ interface ROCmSystemInfo {
   detected: boolean;
   rocmInfoPath?: string;
   rocmSmiPath?: string;
+}
+
+/**
+ * Read a sysfs file safely, returning null on error
+ */
+async function readSysfsFile(path: string): Promise<string | null> {
+  try {
+    return (await readFile(path, "utf-8")).trim();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Find DRM device path for a GPU by PCI bus address.
+ * Accepts either "domain:bus:device.function" (e.g. "0000:65:00.0")
+ * or "bus:device.function" (e.g. "65:00.0").
+ */
+async function findDrmDeviceForPciBus(pciBus: string): Promise<string | null> {
+  // Normalize: strip domain prefix if present so "0000:65:00.0" becomes "65:00.0"
+  const normalizedBus = pciBus.replace(/^[0-9a-f]{4}:/i, "");
+
+  try {
+    const { stdout } = await execAsync("ls /sys/class/drm/ 2>/dev/null");
+    const cards = stdout.split("\n").filter((l) => l.startsWith("card") && !l.includes("-"));
+
+    for (const card of cards) {
+      const devicePath = `/sys/class/drm/${card}/device`;
+      const ueventPath = await readSysfsFile(join(devicePath, "uevent"));
+
+      // PCI_SLOT_NAME in uevent is like "0000:65:00.0"
+      // Match against both the full and normalized bus strings
+      if (ueventPath?.includes(pciBus) || ueventPath?.includes(normalizedBus)) {
+        return devicePath;
+      }
+    }
+  } catch {
+    // Ignore
+  }
+  return null;
+}
+
+/**
+ * Read GPU temperature from sysfs hwmon (works for amdgpu driver)
+ */
+async function getSysfsTemperature(drmPath: string): Promise<number | null> {
+  try {
+    const { stdout } = await execAsync(
+      `ls ${drmPath}/hwmon/ 2>/dev/null`
+    );
+    const hwmonDir = stdout.trim().split("\n")[0];
+    if (hwmonDir) {
+      const tempStr = await readSysfsFile(
+        join(drmPath, "hwmon", hwmonDir, "temp1_input")
+      );
+      if (tempStr) {
+        return parseInt(tempStr, 10) / 1000; // Convert millidegrees to C
+      }
+    }
+  } catch {
+    // Ignore
+  }
+  return null;
+}
+
+/**
+ * Read GPU usage from sysfs (amdgpu gpu_busy_percent)
+ */
+async function getSysfsGpuUsage(drmPath: string): Promise<number | null> {
+  const busyStr = await readSysfsFile(join(drmPath, "gpu_busy_percent"));
+  if (busyStr) {
+    return parseInt(busyStr, 10);
+  }
+  return null;
+}
+
+/**
+ * Read GPU memory info from sysfs (amdgpu mem_info_vram_*)
+ */
+async function getSysfsGpuMemory(drmPath: string): Promise<{ total: number; used: number } | null> {
+  const [totalStr, usedStr] = await Promise.all([
+    readSysfsFile(join(drmPath, "mem_info_vram_total")),
+    readSysfsFile(join(drmPath, "mem_info_vram_used")),
+  ]);
+
+  if (totalStr) {
+    const total = parseInt(totalStr, 10);
+    const used = usedStr ? parseInt(usedStr, 10) : 0;
+    return {
+      total: Math.round(total / (1024 * 1024 * 1024) * 100) / 100, // GB
+      used: Math.round(used / (1024 * 1024 * 1024) * 100) / 100,   // GB
+    };
+  }
+  return null;
+}
+
+/**
+ * Read GPU clock from sysfs (amdgpu pp_dpm_sclk)
+ */
+async function getSysfsCurrentClock(drmPath: string): Promise<number | null> {
+  const sclkStr = await readSysfsFile(join(drmPath, "pp_dpm_sclk"));
+  if (sclkStr) {
+    const lines = sclkStr.split("\n").map((l) => l.trim()).filter(Boolean);
+    for (const line of lines) {
+      const match = line.match(/^(\d+):\s*(\d+)Mhz\s*\*\s*$/);
+      if (match) {
+        return parseInt(match[2], 10);
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Read GPU power from sysfs hwmon (amdgpu power1_average)
+ */
+async function getSysfsPower(drmPath: string): Promise<number | null> {
+  try {
+    const { stdout } = await execAsync(
+      `ls ${drmPath}/hwmon/ 2>/dev/null`
+    );
+    const hwmonDir = stdout.trim().split("\n")[0];
+    if (hwmonDir) {
+      const powerStr = await readSysfsFile(
+        join(drmPath, "hwmon", hwmonDir, "power1_average")
+      );
+      if (powerStr) {
+        // power1_average is in microwatts
+        return Math.round(parseInt(powerStr, 10) / 1_000_000 * 100) / 100; // Convert to watts
+      }
+    }
+  } catch {
+    // Ignore
+  }
+  return null;
+}
+
+/**
+ * Fallback: enrich ROCm GPU info with sysfs data when rocm-smi is unavailable.
+ * Reads temperature, usage, memory, clock, and power from DRM sysfs.
+ * Matches by pciBus if available, otherwise by GPU index ordering.
+ */
+async function enrichWithSysfsFallback(gpu: ROCmGPUInfo, gpuIndex: number): Promise<void> {
+  let drmPath: string | null = null;
+
+  // Try PCI bus matching first (most reliable)
+  if (gpu.pciBus) {
+    drmPath = await findDrmDeviceForPciBus(gpu.pciBus);
+  }
+
+  // Fall back to index-based matching: enumerate DRM cards and pick by index
+  if (!drmPath) {
+    const allDrmPaths = await findAllDrmDevicePaths();
+    // Filter to only GPU devices (render nodes and control nodes have different suffixes)
+    const gpuPaths = allDrmPaths.filter((p) => !p.includes("-"));
+    if (gpuIndex < gpuPaths.length) {
+      drmPath = gpuPaths[gpuIndex];
+    }
+  }
+
+  if (!drmPath) return;
+
+  // Read metrics in parallel
+  const [temperature, usage, memory, currentClock, power] = await Promise.all([
+    getSysfsTemperature(drmPath),
+    getSysfsGpuUsage(drmPath),
+    getSysfsGpuMemory(drmPath),
+    getSysfsCurrentClock(drmPath),
+    getSysfsPower(drmPath),
+  ]);
+
+  if (temperature !== null) gpu.temperature = temperature;
+  if (usage !== null) gpu.usage = usage;
+  if (memory !== null) gpu.memory = memory;
+  if (currentClock !== null) gpu.currentClockMHz = currentClock;
+  if (power !== null) gpu.power = power;
+}
+
+/**
+ * Enumerate all DRM device paths under /sys/class/drm/
+ */
+async function findAllDrmDevicePaths(): Promise<string[]> {
+  try {
+    const { stdout } = await execAsync("ls /sys/class/drm/ 2>/dev/null");
+    return stdout
+      .split("\n")
+      .filter((l) => l.startsWith("card"))
+      .map((card) => `/sys/class/drm/${card}/device`);
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -628,6 +821,16 @@ async function getRocmVersion(rocmInfoPath: string): Promise<string> {
     "/opt/rocm/.info/version",
   ];
 
+  // Newer ROCm layouts install under /opt/rocm/core-<version>/ with symlinks at top level
+  // Search for .info/version under any /opt/rocm/core-* directory
+  try {
+    const { stdout } = await execAsync("ls -d /opt/rocm/core-*/.info/version 2>/dev/null");
+    const extraPaths = stdout.trim().split("\n").filter(Boolean);
+    versionFilePaths.push(...extraPaths);
+  } catch {
+    // No core-* directories found
+  }
+
   for (const versionFile of versionFilePaths) {
     try {
       const { stdout } = await execAsync(`cat ${versionFile} 2>/dev/null`);
@@ -739,6 +942,24 @@ export async function detectROCm(): Promise<ROCmSystemInfo> {
             };
           }
         }
+      }
+    } else {
+      // rocm-smi not available — fall back to sysfs for real-time metrics
+      // This preserves static rocminfo data (name, gfxVersion, computeUnits)
+      // while adding temperature, usage, memory, clock, and power from DRM sysfs
+      for (let i = 0; i < gpus.length; i++) {
+        const gpu = gpus[i];
+        // Resolve gfxVersion from deviceId if available
+        if (gpu.deviceId) {
+          gpu.gfxVersion = resolveGfxVersion(gpu.deviceId, gpu.gfxVersion ?? "");
+        }
+        gpu.marketingName = getMarketingName(gpu.gfxVersion, {
+          computeUnits: gpu.computeUnits,
+          maxClockMHz: gpu.maxClockMHz,
+          deviceId: gpu.deviceId,
+        });
+        // Attempt sysfs fallback enrichment (pass index for DRM card ordering fallback)
+        await enrichWithSysfsFallback(gpu, i);
       }
     }
 
