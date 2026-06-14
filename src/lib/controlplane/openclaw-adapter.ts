@@ -31,7 +31,8 @@ const CONNECT_TIMEOUT_MS = 8_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 const INITIAL_RECONNECT_DELAY_MS = 1_000;
 const MAX_RECONNECT_DELAY_MS = 15_000;
-const CONNECT_PROTOCOL = 3;
+const CONNECT_PROTOCOL_MIN = 3;
+const CONNECT_PROTOCOL_MAX = 4;
 const CONNECT_CAPABILITIES = ["tool-events"];
 
 const DEFAULT_METHOD_ALLOWLIST = new Set<string>([
@@ -354,7 +355,8 @@ export class OpenClawGatewayAdapter {
       profileId: this.connectProfileId,
       upstreamUrl: settings.url,
       token: settings.token,
-      protocol: CONNECT_PROTOCOL,
+      minProtocol: CONNECT_PROTOCOL_MIN,
+      maxProtocol: CONNECT_PROTOCOL_MAX,
       capabilities: CONNECT_CAPABILITIES,
     });
     this.connectionEpoch = randomUUID();

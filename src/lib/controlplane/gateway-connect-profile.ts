@@ -77,12 +77,13 @@ export function buildGatewayConnectProfile(args: {
   profileId: GatewayConnectProfileId;
   upstreamUrl: string;
   token: string;
-  protocol: number;
+  minProtocol: number;
+  maxProtocol: number;
   capabilities: string[];
 }): GatewayConnectProfile {
   const baseParams = {
-    minProtocol: args.protocol,
-    maxProtocol: args.protocol,
+    minProtocol: args.minProtocol,
+    maxProtocol: args.maxProtocol,
     role: "operator" as const,
     scopes: [...OPERATOR_SCOPES],
     caps: [...args.capabilities],
