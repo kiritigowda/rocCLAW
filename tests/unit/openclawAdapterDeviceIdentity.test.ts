@@ -43,7 +43,8 @@ describe("device identity integration", () => {
         profileId: "backend-local",
         upstreamUrl: "ws://localhost:8080",
         token: "test-token",
-        protocol: 3,
+        minProtocol: 3,
+        maxProtocol: 3,
         capabilities: ["tool-events"],
       });
 
@@ -58,7 +59,8 @@ describe("device identity integration", () => {
         profileId: "legacy-control-ui",
         upstreamUrl: "ws://localhost:8080",
         token: "test-token",
-        protocol: 3,
+        minProtocol: 3,
+        maxProtocol: 3,
         capabilities: ["tool-events"],
       });
 
@@ -73,7 +75,8 @@ describe("device identity integration", () => {
         profileId: "backend-local",
         upstreamUrl: "ws://localhost:8080",
         token: "test-token",
-        protocol: 3,
+        minProtocol: 3,
+        maxProtocol: 3,
         capabilities: ["tool-events"],
       });
 
@@ -95,7 +98,8 @@ describe("device identity integration", () => {
         profileId: "backend-local",
         upstreamUrl: "ws://localhost:8080",
         token: "test-token",
-        protocol: 3,
+        minProtocol: 3,
+        maxProtocol: 3,
         capabilities: ["tool-events"],
       });
 
@@ -196,7 +200,8 @@ describe("device identity integration", () => {
         profileId: "backend-local",
         upstreamUrl: "ws://localhost:8080",
         token: "my-auth-token",
-        protocol: 3,
+        minProtocol: 3,
+        maxProtocol: 3,
         capabilities: ["tool-events"],
       });
 
